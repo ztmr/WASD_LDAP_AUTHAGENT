@@ -1,0 +1,74 @@
+
+  ******************************************
+  *** LDAP Authentication for WASD HTTPd ***
+  ******************************************
+
+This directory contains a modified version of AUTHAGENT_LDAP module.
+Its original version can be found on WASD's webpage.
+
+This modification allow you to authenticate users against external LDAP
+server WITHOUT corresponding SYSUAF records.
+
+
+Simple (but expert friendly) steps:
+==================================
+(1) COPY AUTHAGENT_LDAP_1.C HT_ROOT:[SRC.AGENT] (overwrite existing one)
+(2) SET DEF HT_ROOT:[SRC.AGENT]
+(3) @BUILD_AUTHAGENT_LDAP_1
+(4) COPY HT_EXE:AUTHAGENT_LDAP.EXE CGI-BIN:[000000]
+    (don't forget that WASD_EXE = HT_EXE in latest WASD versions)
+(5) INSTALL REPLACE CGI-BIN:[000000]AUTHAGENT_LDAP.EXE /AUTHPRV=SYSPRV
+    (modify your WASD startup procedure to do it automatically)
+(6) EDT HT_ROOT:[LOCAL]HTTPD$AUTH.CONF & add something like:
+
+["LDAP Restricted Area"=AUTHAGENT_LDAP=agent]
+/web/private/* r,https:,param='\
+  /HOST="ldap.example.org"\
+  /BASE="dc=example,dc=org"\
+  /FILTER="uid=%u"/TLS\
+  /UDEF=HTTP$LDAP'
+
+(7) HTTPD/DO=AUTH=PURGE
+(8) HTTPD/DO=AUTH=LOAD
+(9) EDT HT_ROOT:[LOCAL]HTTPD$MAP.CONF & add something like:
+
+exec+ /cgiauth-bin/* /cgi-plus/*
+
+[[*:80]]
+redirect /web/private/* https://www.example.org/web/private/*
+
+(10) HTTPD/DO=MAP=LOAD
+
+(11) create a new SYSUAF user HTTP$LDAP. You can simply copy HTTP$NOBODY
+     and modify some params:
+
+       $ AUTH COP HTTP$NOBODY HTTP$LDAP/REMOTE/LOCAL -
+       _$     /OWNER="WASD LDAP Auth"/UIC=[75,1]/ADD
+
+     (AUTH*ORIZE is expected to be a foreign command: "$SYS$SYSTEM:AUTHORIZE")
+
+
+Troubleshooting:
+================
+(1) test your credentials against your LDAP server:
+    (a) using ldapsearch (anonymous lookup followed by dn/passwd login):
+
+        $ ldapsearch -h ldap.example.org -x \
+            -b "dc=example,dc=org" "(uid=MYLOGIN)"
+        $ ldapsearch -h ldap.example.org -x -W \
+            -D "personalId=12345,ou=people,dc=example,dc=org" \
+            -b "dc=example,dc=org" "(uid=MYLOGIN)"
+
+    (b) using interactive AUTHAGENT_LDAP:
+
+        $ LDAP :== $CGI-BIN:[000000]AUTHAGENT_LDAP.EXE -
+        _$ /HOST=ldap.example.org/WATCH/DBUG/DUMP -
+        _$ /BASE=dc="example,dc=org"
+        $ LDAP/FILTER="uid=%u" -
+        _$ /AUTH_PASSWORD="MYPASSWD"/REMOTE_USER="MYLOGIN"
+
+    (c) using attached ldapauth.pl PERL script
+
+(2) use WATCH in combination with /WATCH/DBUG params in HTTPD$AUTH.CONF
+    or/and define AUTHAGENT_LDAP$WATCH logical to non-null value
+
